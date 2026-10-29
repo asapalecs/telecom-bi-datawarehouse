@@ -1,0 +1,38 @@
+# SQL Server 2022 pentru depozitul de date.
+#
+#   export DW_ENGINE=sqlserver MSSQL_PASSWORD='<parola>'
+#   docker compose -f docker/docker-compose.yml up -d
+#   python etl/main.py
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: telecom-dw-sqlserver
+    restart: unless-stopped
+
+    environment:
+      ACCEPT_EULA: "Y"
+      # Developer include columnstore si partitionare (Express nu).
+      MSSQL_PID: "Developer"
+      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD:?seteaza MSSQL_PASSWORD}
+
+    ports:
+      - "1433:1433"
+
+    volumes:
+      - mssql-data:/var/opt/mssql
+
+    healthcheck:
+      test: >
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa
+        -P "${MSSQL_PASSWORD:?seteaza MSSQL_PASSWORD}" -C -Q "SELECT 1"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+    # SQL Server necesita minim 2 GB.
+    mem_limit: 4g
+
+volumes:
+  mssql-data:

@@ -1,0 +1,8 @@
+# Dependente de baza pentru rularea pe SQLite.
+pandas==2.2.2
+numpy==1.26.4
+SQLAlchemy==2.0.31
+Faker==26.0.0
+
+# Suportul SQL Server (pyodbc) e optional:
+#     pip install -r requirements-sqlserver.txt

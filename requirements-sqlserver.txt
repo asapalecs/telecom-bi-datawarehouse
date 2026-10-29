@@ -1,0 +1,6 @@
+# Optional, doar pentru DW_ENGINE=sqlserver. Necesita driverul ODBC instalat:
+#   macOS:   brew install unixodbc msodbcsql18 (tap microsoft/mssql-release)
+#   Ubuntu:  sudo apt-get install unixodbc-dev + msodbcsql18
+#   Windows: Microsoft ODBC Driver 18 for SQL Server
+
+pyodbc==5.1.0

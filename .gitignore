@@ -1,0 +1,24 @@
+# Secrete
+.env
+*.env
+!.env.example
+
+# Date generate (reproductibile prin pipeline)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Editoare si OS
+.DS_Store
+.idea/
+.vscode/
