@@ -1,0 +1,217 @@
+// DEPOZIT DE DATE TELECOM - MASURI DAX POWER BI
+// Model presupus:
+//   * relatii unidirectionale de la fiecare dimensiune spre tabela de fapte
+//   * DIM_DATE marcata ca tabela de date, pe DIM_DATE[full_date]
+//   * mod de stocare: Import
+
+
+// MASURI DE BAZA
+
+Venit Total =
+SUM ( FACT_SUBSCRIPTION_MONTHLY[total_revenue] )
+
+Marja Bruta =
+SUM ( FACT_SUBSCRIPTION_MONTHLY[gross_margin] )
+
+Marja % =
+DIVIDE ( [Marja Bruta], [Venit Total] )
+
+
+// Pe customer_id: customer_key se schimba la fiecare versiune SCD,
+// iar is_active e semi-aditiv.
+Clienti Activi =
+DISTINCTCOUNT ( FACT_SUBSCRIPTION_MONTHLY[customer_id] )
+
+
+Abonat Luni =
+COUNTROWS ( FACT_SUBSCRIPTION_MONTHLY )
+
+
+// ARPU - venit mediu per client
+
+ARPU =
+DIVIDE ( [Venit Total], [Clienti Activi] )
+
+
+ARPU LP =
+CALCULATE ( [ARPU], DATEADD ( DIM_DATE[full_date], -1, MONTH ) )
+
+ARPU LpL % =
+DIVIDE ( [ARPU] - [ARPU LP], [ARPU LP] )
+
+
+// ARPU fara costuri in afara pachetului.
+ARPU Recurent =
+DIVIDE (
+    SUM ( FACT_SUBSCRIPTION_MONTHLY[plan_fee] )
+        - SUM ( FACT_SUBSCRIPTION_MONTHLY[discount_amount] ),
+    [Clienti Activi]
+)
+
+
+// CHURN
+
+// INT: is_churn vine ca True/False din coloana BIT a SQL Server.
+Clienti Pierduti =
+SUMX ( FACT_SUBSCRIPTION_MONTHLY, INT ( FACT_SUBSCRIPTION_MONTHLY[is_churn] ) )
+
+Rata Churn =
+DIVIDE ( [Clienti Pierduti], [Abonat Luni] )
+
+
+// Compus, nu inmultit cu 12.
+Rata Churn Anualizata =
+VAR MonthlyRate = [Rata Churn]
+RETURN
+    IF ( NOT ISBLANK ( MonthlyRate ), 1 - POWER ( 1 - MonthlyRate, 12 ) )
+
+
+Venit Pierdut prin Churn =
+CALCULATE (
+    [Venit Total],
+    INT ( FACT_SUBSCRIPTION_MONTHLY[is_churn] ) = 1
+)
+
+
+Rata Churn LP =
+CALCULATE ( [Rata Churn], DATEADD ( DIM_DATE[full_date], -1, MONTH ) )
+
+Rata Churn LpL pp =
+[Rata Churn] - [Rata Churn LP]
+
+
+// RECLAMATII
+
+Total Reclamatii =
+SUM ( FACT_SUBSCRIPTION_MONTHLY[complaint_count] )
+
+Rata Reclamatii =
+DIVIDE ( [Total Reclamatii], [Abonat Luni] )
+
+Rata Rezolvare Reclamatii =
+DIVIDE (
+    SUM ( FACT_SUBSCRIPTION_MONTHLY[complaints_resolved] ),
+    [Total Reclamatii]
+)
+
+Zile Medii Rezolvare =
+AVERAGEX (
+    FILTER (
+        FACT_SUBSCRIPTION_MONTHLY,
+        FACT_SUBSCRIPTION_MONTHLY[complaint_count] > 0
+    ),
+    FACT_SUBSCRIPTION_MONTHLY[avg_resolution_days]
+)
+
+
+Rata Churn - Cu Reclamatii =
+CALCULATE ( [Rata Churn], FACT_SUBSCRIPTION_MONTHLY[complaint_count] > 0 )
+
+Rata Churn - Fara Reclamatii =
+CALCULATE ( [Rata Churn], FACT_SUBSCRIPTION_MONTHLY[complaint_count] = 0 )
+
+Multiplicator Churn Reclamatii =
+DIVIDE ( [Rata Churn - Cu Reclamatii], [Rata Churn - Fara Reclamatii] )
+
+
+// CONSUM
+
+Total Date GB =
+SUM ( FACT_SUBSCRIPTION_MONTHLY[data_used_gb] )
+
+Date Medii per Client GB =
+DIVIDE ( [Total Date GB], [Clienti Activi] )
+
+Minute Voce Medii =
+AVERAGE ( FACT_SUBSCRIPTION_MONTHLY[voice_used_min] )
+
+
+// Ponderea abonat-lunilor peste pachetul de date.
+Peste Pachet % =
+VAR OverRows =
+    CALCULATE (
+        [Abonat Luni],
+        FILTER (
+            FACT_SUBSCRIPTION_MONTHLY,
+            RELATED ( DIM_PLAN[data_allowance_gb] ) > 0
+                && FACT_SUBSCRIPTION_MONTHLY[data_used_gb]
+                   > RELATED ( DIM_PLAN[data_allowance_gb] )
+        )
+    )
+RETURN
+    DIVIDE ( OverRows, [Abonat Luni] )
+
+
+// VALOAREA PE DURATA DE VIATA A CLIENTULUI (CLV)
+// Durata ramasa = 1 / rata lunara de churn (hazard constant), plafonata la 60.
+
+Durata Viata Estimata Luni =
+VAR MonthlyChurn = [Rata Churn]
+RETURN
+    IF (
+        MonthlyChurn > 0,
+        MIN ( DIVIDE ( 1, MonthlyChurn ), 60 ),
+        60
+    )
+
+CLV =
+[ARPU] * [Marja %] * [Durata Viata Estimata Luni]
+
+
+// Sub 3.0 este pragul uzual de avertizare.
+Raport CLV CAC =
+VAR AssumedCAC = 150     // RON; de inlocuit cu valoarea reala per canal
+RETURN
+    DIVIDE ( [CLV], AssumedCAC )
+
+
+// TIME INTELLIGENCE (necesita DIM_DATE marcata ca tabela de date)
+
+Venit AP =
+CALCULATE ( [Venit Total], SAMEPERIODLASTYEAR ( DIM_DATE[full_date] ) )
+
+Venit AnpA % =
+DIVIDE ( [Venit Total] - [Venit AP], [Venit AP] )
+
+Venit De La Inceputul Anului =
+TOTALYTD ( [Venit Total], DIM_DATE[full_date] )
+
+Venit Mobil 3L =
+CALCULATE (
+    [Venit Total],
+    DATESINPERIOD ( DIM_DATE[full_date], MAX ( DIM_DATE[full_date] ), -3, MONTH )
+)
+
+Rata Churn Mobila 12L =
+CALCULATE (
+    [Rata Churn],
+    DATESINPERIOD ( DIM_DATE[full_date], MAX ( DIM_DATE[full_date] ), -12, MONTH )
+)
+
+
+// MISCARE NETA A ABONATILOR
+
+Clienti LP =
+CALCULATE ( [Clienti Activi], DATEADD ( DIM_DATE[full_date], -1, MONTH ) )
+
+Adaugari Nete =
+[Clienti Activi] - [Clienti LP]
+
+
+// FORMATARE CONDITIONATA
+
+Culoare Status Churn =
+SWITCH (
+    TRUE (),
+    [Rata Churn] > 0.020, "#D13438",   // peste 2% lunar - critic
+    [Rata Churn] > 0.015, "#F7A600",   // 1.5-2% - atentie
+    "#107C10"                          // sanatos
+)
+
+Icon Trend ARPU =
+SWITCH (
+    TRUE (),
+    [ARPU LpL %] > 0.02,  "▲",
+    [ARPU LpL %] < -0.02, "▼",
+    "="
+)
